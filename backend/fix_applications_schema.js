@@ -19,10 +19,10 @@ async function fixApplicationsTable() {
         ALTER TABLE applications 
         ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       `);
-      console.log('✅ Added created_at column to applications table');
+      console.log(' Added created_at column to applications table');
     } catch (error) {
       if (error.code === 'ER_DUP_FIELDNAME') {
-        console.log('✅ created_at column already exists in applications table');
+        console.log(' created_at column already exists in applications table');
       } else {
         throw error;
       }
@@ -34,10 +34,10 @@ async function fixApplicationsTable() {
         ALTER TABLE applications 
         ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       `);
-      console.log('✅ Added updated_at column to applications table');
+      console.log(' Added updated_at column to applications table');
     } catch (error) {
       if (error.code === 'ER_DUP_FIELDNAME') {
-        console.log('✅ updated_at column already exists in applications table');
+        console.log(' updated_at column already exists in applications table');
       } else {
         throw error;
       }
@@ -48,16 +48,16 @@ async function fixApplicationsTable() {
       DESCRIBE applications
     `);
     
-    console.log('\n📋 Applications table structure:');
+    console.log('\nApplications table structure:');
     columns.forEach(col => {
       console.log(`  - ${col.Field}: ${col.Type} ${col.Null === 'NO' ? 'NOT NULL' : 'NULL'} ${col.Default ? `DEFAULT ${col.Default}` : ''}`);
     });
 
     await db.end();
-    console.log('\n🎉 Database schema updated successfully!');
+    console.log('\n Database schema updated successfully!');
 
   } catch (error) {
-    console.error('❌ Error updating database schema:', error);
+    console.error('Error updating database schema:', error);
     process.exit(1);
   }
 }

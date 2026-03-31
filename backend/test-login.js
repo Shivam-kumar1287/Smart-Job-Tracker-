@@ -10,11 +10,11 @@ async function testLogin() {
       password: 'test123'
     });
     
-    console.log('✅ Login successful!');
+    console.log(' Login successful!');
     console.log('Response:', response.data);
     
   } catch (error) {
-    console.error('❌ Login failed:', error.response?.data || error.message);
+    console.error(' Login failed:', error.response?.data || error.message);
     console.error('Status:', error.response?.status);
     console.error('Request data:', error.config?.data);
   }
