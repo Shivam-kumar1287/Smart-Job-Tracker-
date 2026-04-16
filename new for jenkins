@@ -3,6 +3,6 @@
 //export default defineConfig({
 //  plugins: [
   //  react(),
-  //  babel({ presets: [reactCompilerPreset()] })
+  //  babel({ p szn.dbfk.dsbkfjsresets: [reactCompilerPreset()] })
   //],
 })
