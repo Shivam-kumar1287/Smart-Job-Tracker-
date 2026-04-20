@@ -32,6 +32,16 @@ export default function Navigation() {
 
           <div className="flex items-center space-x-1 sm:space-x-4">
             <button
+              onClick={() => navigate("/analyzer")}
+              className={`px-3 py-2 rounded-lg text-sm font-bold transition-all duration-200 active:scale-95 ${
+                isActive("/analyzer") 
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 shadow-inner" 
+                  : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900"
+              }`}
+            >
+              AI Analyzer
+            </button>
+            <button
               onClick={() => navigate("/features")}
               className={`px-3 py-2 rounded-lg text-sm font-bold transition-all duration-200 active:scale-95 ${
                 isActive("/features") 

@@ -18,7 +18,7 @@ export const createJob = async (req, res) => {
 
 export const getJobs = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT * FROM jobs ORDER BY created_at DESC");
+    const [rows] = await db.query("SELECT * FROM jobs WHERE status = 'open' ORDER BY created_at DESC");
     res.json(rows);
   } catch (error) {
     console.error("Error fetching jobs:", error);
@@ -29,7 +29,12 @@ export const getJobs = async (req, res) => {
 export const getMyJobs = async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT * FROM jobs WHERE created_by = ? ORDER BY created_at DESC",
+      `SELECT j.*, COUNT(a.id) as applicant_count 
+       FROM jobs j 
+       LEFT JOIN applications a ON j.id = a.job_id 
+       WHERE j.created_by = ? 
+       GROUP BY j.id 
+       ORDER BY j.created_at DESC`,
       [req.user.id]
     );
     res.json(rows);
@@ -69,6 +74,24 @@ export const deleteJob = async (req, res) => {
   } catch (error) {
     console.error("Error deleting job:", error);
     res.status(500).json("Error deleting job");
+  }
+};
+
+export const toggleJobStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check current status and verify owner
+    const [rows] = await db.query("SELECT status FROM jobs WHERE id=? AND created_by=?", [id, req.user.id]);
+    if (rows.length === 0) return res.status(404).json("Job not found or unauthorized");
+    
+    const newStatus = rows[0].status === 'open' ? 'closed' : 'open';
+    
+    await db.query("UPDATE jobs SET status=? WHERE id=? AND created_by=?", [newStatus, id, req.user.id]);
+    res.json({ message: "Job status updated", status: newStatus });
+  } catch (error) {
+    console.error("Error updating job status:", error);
+    res.status(500).json("Error updating job status");
   }
 };
 

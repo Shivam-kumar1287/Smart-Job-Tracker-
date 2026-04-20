@@ -8,7 +8,7 @@ import HRDashboard from "./pages/HRDashboard";
 import Profile from "./pages/Profile";
 import SavedJobs from "./pages/SavedJobs";
 import Features from "./pages/Features";
-import Navigation from "./components/Navigation";
+import AIAnalyzer from "./pages/AIAnalyzer";
 
 function App() {
   return (
@@ -18,6 +18,7 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/features" element={<Features />} />
         <Route path="/jobs" element={<Jobs />} />
+        <Route path="/analyzer" element={<AIAnalyzer />} />
         <Route path="/apply/:id" element={<Apply />} />
         <Route path="/user-dashboard" element={<UserDashboard />} />
         <Route path="/hr-dashboard" element={<HRDashboard />} />

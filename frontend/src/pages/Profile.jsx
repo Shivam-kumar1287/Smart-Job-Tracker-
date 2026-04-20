@@ -8,7 +8,8 @@ export default function Profile() {
   const [user, setUser] = useState(null);
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({
-    name: "", email: "", phone: "", location: "", bio: "", skills: ""
+    name: "", email: "", phone: "", location: "", bio: "", skills: "",
+    social_links: []
   });
 
   useEffect(() => {
@@ -22,7 +23,8 @@ export default function Profile() {
       setFormData({
         name: res.data.name || "", email: res.data.email || "",
         phone: res.data.phone || "", location: res.data.location || "",
-        bio: res.data.bio || "", skills: res.data.skills || ""
+        bio: res.data.bio || "", skills: res.data.skills || "",
+        social_links: res.data.social_links || []
       });
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -37,6 +39,23 @@ export default function Profile() {
       setEditing(false);
     } catch (error) {
       alert("Error updating profile");
+    }
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    try {
+      const res = await api.post("/auth/profile/image", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      setUser({ ...user, profile_image: res.data.imagePath });
+    } catch (error) {
+      alert("Error uploading image");
     }
   };
 
@@ -75,11 +94,20 @@ export default function Profile() {
               <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-purple-500/20 to-pink-500/20 z-0"></div>
               
               <div className="relative z-10">
-                <div className="w-28 h-28 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mx-auto mb-4 flex items-center justify-center p-1 shadow-lg">
-                  <div className="w-full h-full bg-white dark:bg-gray-900 rounded-full flex items-center justify-center">
-                     <span className="text-4xl font-black bg-gradient-to-br from-purple-500 to-pink-500 bg-clip-text text-transparent">
-                       {user.name ? user.name.charAt(0).toUpperCase() : "U"}
-                     </span>
+                <div className="group relative w-28 h-28 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full mx-auto mb-4 flex items-center justify-center p-1 shadow-lg transition-transform hover:scale-105">
+                  <div className="w-full h-full bg-white dark:bg-gray-900 rounded-full flex items-center justify-center overflow-hidden relative">
+                     {user.profile_image ? (
+                       <img src={`http://localhost:5000/${user.profile_image.replace(/\\/g, '/')}`} alt="Profile" className="w-full h-full object-cover" />
+                     ) : (
+                       <span className="text-4xl font-black bg-gradient-to-br from-purple-500 to-pink-500 bg-clip-text text-transparent">
+                         {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                       </span>
+                     )}
+                     
+                     <label className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                     </label>
                   </div>
                 </div>
                 
@@ -153,8 +181,54 @@ export default function Profile() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Key Skills</label>
-                    <input type="text" name="skills" value={formData.skills} onChange={handleChange} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none" placeholder="e.g., Python, React, Machine Learning" />
+                    <div className="flex justify-between items-center mb-4">
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Social Media & Portfolio Links</label>
+                      <button 
+                        type="button" 
+                        onClick={() => setFormData({...formData, social_links: [...formData.social_links, { platform: "", url: "" }]})}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                        Add New Link
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {formData.social_links.map((link, index) => (
+                        <div key={index} className="flex gap-2 items-center animate-fadeIn">
+                          <input 
+                            placeholder="Platform (e.g. GitHub)" 
+                            value={link.platform} 
+                            onChange={(e) => {
+                              const newLinks = [...formData.social_links];
+                              newLinks[index].platform = e.target.value;
+                              setFormData({...formData, social_links: newLinks});
+                            }}
+                            className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none" 
+                          />
+                          <input 
+                            placeholder="URL (https://...)" 
+                            value={link.url} 
+                            onChange={(e) => {
+                              const newLinks = [...formData.social_links];
+                              newLinks[index].url = e.target.value;
+                              setFormData({...formData, social_links: newLinks});
+                            }}
+                            className="flex-[2] px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none" 
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const newLinks = formData.social_links.filter((_, i) => i !== index);
+                              setFormData({...formData, social_links: newLinks});
+                            }}
+                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      ))}
+                      {formData.social_links.length === 0 && <p className="text-xs text-gray-400 italic">No links added yet.</p>}
+                    </div>
                   </div>
 
                   <div className="flex gap-4 pt-4 border-t border-gray-100 dark:border-gray-800">
@@ -183,6 +257,30 @@ export default function Profile() {
                        )) : (
                          <span className="text-gray-400 italic flex items-center h-full">No skills listed.</span>
                        )}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Connect</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 dark:bg-gray-800/50 p-6 rounded-2xl border border-gray-100 dark:border-gray-800">
+                      {(user.social_links || []).length > 0 ? user.social_links.map((link, i) => (
+                        <a 
+                          key={i} 
+                          href={link.url.startsWith('http') ? link.url : `https://${link.url}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl hover:shadow-md hover:-translate-y-0.5 transition-all group"
+                        >
+                          <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center font-black text-xs uppercase group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            {link.platform.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{link.platform}</p>
+                            <p className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate max-w-[120px]">{link.url.replace(/^https?:\/\//i, '')}</p>
+                          </div>
+                        </a>
+                      )) : (
+                        <p className="text-gray-400 italic text-sm col-span-2">No social links added.</p>
+                      )}
                     </div>
                   </div>
                 </div>

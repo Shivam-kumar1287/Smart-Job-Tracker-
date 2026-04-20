@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "./api";
 import Navigation from "../components/Navigation";
@@ -12,12 +12,34 @@ export default function Apply() {
   const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
+    // Check if user is a regular user
     api.get("/auth/profile").then(res => {
       if (res.data.role !== "user") {
         navigate("/hr-dashboard");
       }
     }).catch(() => navigate("/"));
-  }, []);
+
+    // Check if user already applied to this specific job
+    api.get("/applications/my").then(res => {
+      const alreadyApplied = res.data.some(app => app.job_id.toString() === id.toString());
+      if (alreadyApplied) {
+        alert("You have already applied for this job.");
+        navigate("/user-dashboard");
+      }
+    }).catch(err => console.error("Error checking application status:", err));
+
+    // Check if job is still open
+    api.get(`/jobs/${id}`).then(res => {
+      if(res.data.status === 'closed') {
+        alert("This job is no longer accepting applications.");
+        navigate("/jobs");
+      }
+    }).catch(err => {
+      console.error("Error fetching job details:", err);
+      alert("Job not found.");
+      navigate("/jobs");
+    });
+  }, [id]);
 
   const handleDrag = function(e) {
     e.preventDefault();
@@ -62,7 +84,8 @@ export default function Apply() {
       alert("Applied Successfully!");
       navigate("/user-dashboard");
     } catch (err) {
-      alert("Application failed. Please try again.");
+      const message = err.response?.data || "Application failed. Please try again.";
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -134,7 +157,7 @@ export default function Apply() {
                <button 
                  onClick={applyJob}
                  disabled={loading || !file}
-                 className={`flex-1 py-3.5 rounded-xl font-bold text-white shadow-lg transition-all flex justify-center items-center ${loading || !file ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400 shadow-none' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 active:scale-95'}`}
+                 className={`flex-1 py-3.5 rounded-xl font-medium text-white shadow-lg transition-all flex justify-center items-center ${loading || !file ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400 shadow-none' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 active:scale-95'}`}
                >
                  {loading ? (
                    <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -144,7 +167,7 @@ export default function Apply() {
                </button>
                <button 
                  onClick={() => navigate("/jobs")}
-                 className="px-6 py-3.5 rounded-xl font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                 className="px-6 py-3.5 rounded-xl font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                >
                  Cancel
                </button>

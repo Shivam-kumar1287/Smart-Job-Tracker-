@@ -1,5 +1,5 @@
 import express from "express";
-import { createJob, getJobs, getMyJobs, updateJob, deleteJob, getJobById, getJobPerformance, getSimilarJobs } from "../controllers/jobController.js";
+import { createJob, getJobs, getMyJobs, updateJob, deleteJob, getJobById, getJobPerformance, getSimilarJobs, toggleJobStatus } from "../controllers/jobController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 import { allowRoles } from "../middleware/roleMiddleware.js";
 
@@ -12,6 +12,7 @@ router.get("/:id", getJobById);
 router.get("/:id/performance", verifyToken, allowRoles("hr"), getJobPerformance);
 router.get("/:id/similar", getSimilarJobs);
 router.put("/:id", verifyToken, allowRoles("hr"), updateJob);
+router.put("/:id/toggle-status", verifyToken, allowRoles("hr"), toggleJobStatus);
 router.delete("/:id", verifyToken, allowRoles("hr"), deleteJob);
 
 export default router;

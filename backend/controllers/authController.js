@@ -54,7 +54,8 @@ export const login = async (req, res) => {
         id: rows[0].id,
         name: rows[0].name,
         email: rows[0].email,
-        role: rows[0].role
+        role: rows[0].role,
+        profile_image: rows[0].profile_image
       }
     });
   } catch (error) {
@@ -66,7 +67,7 @@ export const login = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT id, name, email, role, phone, location, bio, skills, created_at FROM users WHERE id=?",
+      "SELECT id, name, email, role, phone, location, bio, skills, social_links, profile_image, created_at FROM users WHERE id=?",
       [req.user.id]
     );
     
@@ -83,16 +84,36 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, phone, location, bio, skills } = req.body;
+    const { name, phone, location, bio, skills, social_links } = req.body;
     
     await db.query(
-      "UPDATE users SET name=?, phone=?, location=?, bio=?, skills=? WHERE id=?",
-      [name, phone, location, bio, skills, req.user.id]
+      "UPDATE users SET name=?, phone=?, location=?, bio=?, skills=?, social_links=? WHERE id=?",
+      [name, phone, location, bio, skills, JSON.stringify(social_links), req.user.id]
     );
     
     res.json("Profile updated successfully");
   } catch (error) {
     console.error("Error updating profile:", error);
     res.status(500).json("Error updating profile");
+  }
+};
+
+export const updateProfileImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json("No image uploaded");
+    }
+
+    const imagePath = req.file.path;
+    
+    await db.query(
+      "UPDATE users SET profile_image=? WHERE id=?",
+      [imagePath, req.user.id]
+    );
+
+    res.json({ message: "Profile image updated successfully", imagePath });
+  } catch (error) {
+    console.error("Error updating profile image:", error);
+    res.status(500).json("Error updating profile image");
   }
 };

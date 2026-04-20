@@ -1,6 +1,7 @@
 import db from "../models/database.js";
-import { getATSScore } from "../services/atsService.js";
+import { getATSScore, analyzeResumeDetailed } from "../services/atsService.js";
 import { sendMail } from "../utils/mailer.js";
+import { generateOfferLetter } from "../utils/offerLetterGenerator.js";
 
 /**
  * ✅ APPLY JOB (USER)
@@ -36,31 +37,37 @@ export const applyJob = async (req, res) => {
       return res.status(400).json("Already applied to this job");
     }
 
+    // Get job details and check status
+    const [jobRows] = await db.query("SELECT * FROM jobs WHERE id=?", [job_id]);
+    if (jobRows.length === 0) {
+      return res.status(404).json("Job not found");
+    }
+    const job = jobRows[0];
+    if (job.status === 'closed') {
+      return res.status(400).json("This job is no longer accepting applications");
+    }
+
     // Insert application with resume file path
     const resume_path = resume_file ? resume_file.path : null;
     const [result] = await db.query(
-      "INSERT INTO applications (user_id,job_id,cover_letter,resume_path,status) VALUES (?,?,?,?,'pending')",
+      "INSERT INTO applications (user_id,job_id,cover_letter,resume_path) VALUES (?,?,?,?)",
       [user_id, job_id, cover_letter || "", resume_path]
     );
 
-    // Get job details for ATS scoring
-    const [jobRows] = await db.query("SELECT * FROM jobs WHERE id=?", [job_id]);
     if (jobRows.length > 0) {
-      const job = jobRows[0];
       
       try {
         // Calculate CRI score based on resume and job description
-        let atsScore = null;
         if (resume_path) {
-          atsScore = await getATSScore(resume_path, job.description);
-        }
-        
-        // Update application with ATS score
-        if (atsScore !== null) {
-          await db.query(
-            "UPDATE applications SET ats_score=? WHERE id=?",
-            [atsScore, result.insertId]
-          );
+          const { score, explanation, suggestions } = await getATSScore(resume_path, job.description);
+          
+          // Update application with ATS result
+          if (score !== null) {
+            await db.query(
+              "UPDATE applications SET ats_score=?, ats_explanation=?, ats_suggestions=? WHERE id=?",
+              [score, explanation, suggestions, result.insertId]
+            );
+          }
         }
       } catch (atsError) {
         console.error("ATS scoring error:", atsError);
@@ -79,7 +86,7 @@ export const getApplications = async (req, res) => {
   try {
     const hrId = req.user.id;
     const [rows] = await db.query(`
-      SELECT a.*, u.name as user_name, u.email as user_email, j.job_role, j.company_name
+      SELECT a.*, u.name, u.email, u.name as user_name, u.email as user_email, u.phone, u.location, u.bio, u.skills, u.social_links, u.profile_image, j.job_role, j.company_name, j.rounds
       FROM applications a
       JOIN users u ON a.user_id = u.id
       JOIN jobs j ON a.job_id = j.id
@@ -100,11 +107,11 @@ export const getPendingApplications = async (req, res) => {
   try {
     const hrId = req.user.id;
     const [rows] = await db.query(`
-      SELECT a.*, u.name as user_name, u.email as user_email, j.job_role, j.company_name
+      SELECT a.*, u.name, u.email, u.name as user_name, u.email as user_email, u.phone, u.location, u.bio, u.skills, u.social_links, u.profile_image, j.job_role, j.company_name, j.rounds
       FROM applications a
       JOIN users u ON a.user_id = u.id
       JOIN jobs j ON a.job_id = j.id
-      WHERE a.status = 'pending' AND j.created_by = ?
+      WHERE j.created_by = ? AND a.status = 'pending'
       ORDER BY a.applied_at DESC
     `, [hrId]);
     res.json(rows);
@@ -120,7 +127,7 @@ export const getPendingApplications = async (req, res) => {
 export const getMyApplications = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT a.*, j.job_role, j.company_name, j.description
+      SELECT a.*, j.job_role, j.company_name, j.description, j.rounds
       FROM applications a
       JOIN jobs j ON a.job_id = j.id
       WHERE a.user_id = ?
@@ -140,6 +147,15 @@ export const acceptApplication = async (req, res) => {
   try {
     const { id } = req.params;
     
+    // Get current status to prevent duplicate actions/emails
+    const [statusRows] = await db.query(
+      "SELECT status FROM applications WHERE id = ?",
+      [id]
+    );
+
+    if (statusRows.length === 0) return res.status(404).json("Application not found");
+    if (statusRows[0].status !== 'pending') return res.status(400).json("Application is already " + statusRows[0].status);
+
     // Update application status
     await db.query(
       "UPDATE applications SET status = 'accepted' WHERE id = ?",
@@ -180,6 +196,15 @@ export const rejectApplication = async (req, res) => {
   try {
     const { id } = req.params;
     
+    // Get current status to prevent duplicate actions/emails
+    const [statusRows] = await db.query(
+      "SELECT status FROM applications WHERE id = ?",
+      [id]
+    );
+
+    if (statusRows.length === 0) return res.status(404).json("Application not found");
+    if (statusRows[0].status !== 'pending') return res.status(400).json("Application is already " + statusRows[0].status);
+
     // Update application status
     await db.query(
       "UPDATE applications SET status = 'rejected' WHERE id = ?",
@@ -278,7 +303,7 @@ export const getApplicationDetails = async (req, res) => {
     
     // Verify application belongs to HR's job
     const [application] = await db.query(
-      `SELECT a.*, u.name, u.email, u.phone, u.skills, u.bio,
+      `SELECT a.*, u.name, u.email, u.name as user_name, u.email as user_email, u.phone, u.skills, u.bio, u.social_links, u.profile_image,
        j.job_role, j.company_name, j.description, j.required_skills, j.rounds
        FROM applications a
        JOIN users u ON a.user_id = u.id
@@ -316,5 +341,101 @@ export const getApplicationHistory = async (req, res) => {
   } catch (error) {
     console.error("Error fetching application history:", error);
     res.status(500).json("Error fetching application history");
+  }
+};
+
+export const updateApplicationRound = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { round } = req.body;
+    
+    // Fetch application details for potential offer letter
+    const [appRows] = await db.query(`
+      SELECT a.*, u.name as user_name, u.email as user_email, j.job_role, j.company_name, j.rounds
+      FROM applications a
+      JOIN users u ON a.user_id = u.id
+      JOIN jobs j ON a.job_id = j.id
+      WHERE a.id = ?
+    `, [id]);
+
+    if (appRows.length === 0) return res.status(404).json("Application not found");
+    const app = appRows[0];
+
+    await db.query(
+      "UPDATE applications SET current_round = ? WHERE id = ?",
+      [round, id]
+    );
+
+    // If this is the final round
+    if (parseInt(round) >= parseInt(app.rounds)) {
+      // Atomic update to prevent multiple emails
+      const [updateResult] = await db.query(
+        "UPDATE applications SET is_offer_sent = TRUE WHERE id = ? AND is_offer_sent = FALSE",
+        [id]
+      );
+
+      // Only send if we were the one who flipped it from FALSE to TRUE
+      if (updateResult.affectedRows > 0) {
+        try {
+          const filePath = await generateOfferLetter(app.user_name, app.job_role, app.company_name);
+          
+          const html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0;">
+              <div style="background: linear-gradient(to right, #2563eb, #7c3aed); padding: 40px 20px; text-align: center; color: white;">
+                <h1 style="margin: 0; font-size: 24px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;">CONGRATULATIONS!</h1>
+              </div>
+              <div style="padding: 40px 30px; line-height: 1.6; color: #334155;">
+                <p style="font-size: 18px; font-weight: bold; margin-bottom: 20px;">Dear ${app.user_name},</p>
+                <p>We are absolutely thrilled to inform you that you have successfully completed all rounds of interviews for the position of <strong>${app.job_role}</strong> at <strong>${app.company_name}</strong>.</p>
+                <p>Your performance throughout our rigorous selection process was exceptional, and we believe you will be a fantastic addition to our professional family.</p>
+                <div style="background: #f8fafc; padding: 25px; border-radius: 15px; margin: 30px 0; border: 1px solid #f1f5f9;">
+                  <p style="margin: 0; font-size: 14px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 1px; margin-bottom: 10px;">Next Steps</p>
+                  <p style="margin: 0;">Please find your official <strong>Offer Letter</strong> attached to this email. We encourage you to review it carefully and reach out to our team if you have any questions.</p>
+                </div>
+                <p>We can't wait to see the impact you'll make here!</p>
+                <p style="margin-top: 40px; font-weight: bold;">Warm Regards,</p>
+                <p style="margin: 0; color: #2563eb; font-weight: 800;">The Talent Acquisition Team</p>
+                <p style="margin: 0; font-size: 12px; color: #94a3b8;">${app.company_name}</p>
+              </div>
+            </div>
+          `;
+
+          await sendMail(
+            app.user_email,
+            `Exciting News: Your Official Offer Letter from ${app.company_name}`,
+            `Congratulations ${app.user_name}! You have been selected for the position of ${app.job_role} at ${app.company_name}. Please find your offer letter attached.`,
+            html,
+            [{ filename: 'Offer_Letter.pdf', path: filePath }]
+          );
+
+        } catch (err) {
+          console.error("Error sending offer letter:", err);
+          // Rollback flag if email failed, so HR can try again
+          await db.query("UPDATE applications SET is_offer_sent = FALSE WHERE id = ?", [id]);
+        }
+      }
+    }
+    
+    res.json("Application round updated successfully");
+  } catch (error) {
+    console.error("Error updating application round:", error);
+    res.status(500).json("Error updating application round");
+  }
+};
+
+export const analyzeResume = async (req, res) => {
+  try {
+    const { jd } = req.body;
+    const resume_path = req.file ? req.file.path : null;
+
+    if (!resume_path || !jd) {
+      return res.status(400).json("Resume and Job Description are required");
+    }
+
+    const analysis = await analyzeResumeDetailed(resume_path, jd);
+    res.json(analysis);
+  } catch (error) {
+    console.error("Error analyzing resume:", error);
+    res.status(500).json("Error during analysis: " + error.message);
   }
 };
