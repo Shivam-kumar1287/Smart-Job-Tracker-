@@ -17,7 +17,6 @@ export default function Login() {
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("userRole", res.data.user.role);
       
-      // Navigate based on user role
       if (res.data.user.role === 'hr') {
         navigate("/hr-dashboard");
       } else {
@@ -62,7 +61,10 @@ export default function Login() {
           </div>
           
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-200">Password</label>
+            <div className="flex justify-between items-center">
+              <label className="text-sm font-medium text-gray-200">Password</label>
+              <Link to="/forgot-password" className="text-xs text-blue-400 hover:text-blue-300 transition-colors">Forgot Password?</Link>
+            </div>
             <div className="relative">
               <svg className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />

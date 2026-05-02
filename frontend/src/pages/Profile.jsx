@@ -73,7 +73,7 @@ export default function Profile() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
       <Navigation />
       
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fadeIn">
+      <div className="max-w-6xl mx-auto px-6 sm:px-12 lg:px-16 py-8 animate-fadeIn">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
             My Profile

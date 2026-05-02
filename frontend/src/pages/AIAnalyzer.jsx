@@ -44,7 +44,7 @@ export default function AIAnalyzer() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
       <Navigation />
 
-      <main className="max-w-6xl mx-auto px-4 py-8 animate-fadeIn">
+      <main className="max-w-6xl mx-auto px-6 sm:px-12 lg:px-16 py-8 animate-fadeIn">
         <header className="text-center mb-12">
           <div className="inline-block px-4 py-1.5 mb-4 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-xs font-bold uppercase tracking-widest border border-blue-200 dark:border-blue-800">
             Advanced AI Evaluation

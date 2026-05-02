@@ -14,10 +14,26 @@ export default function UserDashboard() {
     name: "", email: "", phone: "", location: "", bio: "", skills: "",
     social_links: []
   });
+
   const [stats, setStats] = useState({
-    totalApplications: 0, pendingApplications: 0, 
+    totalApplications: 0, pendingApplications: 0,
     acceptedApplications: 0, rejectedApplications: 0, savedJobs: 0
   });
+  const [mcqData, setMcqData] = useState([]);
+  const [mcqLoading, setMcqLoading] = useState(false);
+  const [mcqForm, setMcqForm] = useState({
+    jobRole: "", company: "", jd: "", count: 5, difficulty: "Intermediate"
+  });
+  const [userAnswers, setUserAnswers] = useState({});
+  const [showResults, setShowResults] = useState(false);
+  const [practiceMode, setPracticeMode] = useState("mcq"); // mcq or interview
+  const [interviewQuestions, setInterviewQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [interviewAnswers, setInterviewAnswers] = useState([]);
+  const [interviewEvaluation, setInterviewEvaluation] = useState(null);
+  const [evaluating, setEvaluating] = useState(false);
 
   useEffect(() => {
     fetchUserProfile();
@@ -48,7 +64,7 @@ export default function UserDashboard() {
     try {
       const res = await api.get("/applications/my");
       setApplications(res.data);
-      
+
       const st = {
         totalApplications: res.data.length,
         pendingApplications: res.data.filter(a => a.status === 'pending').length,
@@ -62,8 +78,8 @@ export default function UserDashboard() {
 
   const loadSavedJobs = async () => {
     const savedJobIds = JSON.parse(localStorage.getItem('savedJobs') || '[]');
-    setStats(prev => ({...prev, savedJobs: savedJobIds.length}));
-    
+    setStats(prev => ({ ...prev, savedJobs: savedJobIds.length }));
+
     if (savedJobIds.length === 0) {
       setSavedJobs([]);
       return;
@@ -86,9 +102,9 @@ export default function UserDashboard() {
     const savedJobIds = JSON.parse(localStorage.getItem('savedJobs') || '[]');
     const updatedIds = savedJobIds.filter(id => id !== jobId);
     localStorage.setItem('savedJobs', JSON.stringify(updatedIds));
-    
+
     setSavedJobs(savedJobs.filter(job => job.id !== jobId));
-    setStats(prev => ({...prev, savedJobs: updatedIds.length}));
+    setStats(prev => ({ ...prev, savedJobs: updatedIds.length }));
   };
 
   const handleProfileUpdate = async (e) => {
@@ -100,6 +116,119 @@ export default function UserDashboard() {
     } catch (err) {
       alert("Error updating profile");
     }
+  };
+
+  const handleGenerateMCQs = async (e) => {
+    e.preventDefault();
+    setMcqLoading(true);
+    setMcqData([]);
+    setUserAnswers({});
+    setShowResults(false);
+    try {
+      const res = await api.post("/mcq/generate", mcqForm);
+      setMcqData(res.data);
+    } catch (err) {
+      alert("Failed to generate MCQs. Please try again.");
+    } finally {
+      setMcqLoading(false);
+    }
+  };
+
+  const handleGenerateInterview = async (e) => {
+    e.preventDefault();
+    setMcqLoading(true);
+    setInterviewQuestions([]);
+    setInterviewAnswers([]);
+    setCurrentQuestionIndex(0);
+    setInterviewEvaluation(null);
+    try {
+      const res = await api.post("/interview/generate", mcqForm);
+      setInterviewQuestions(res.data);
+      speakQuestion(res.data[0].question);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate questions");
+    } finally {
+      setMcqLoading(false);
+    }
+  };
+
+  const speakQuestion = (text) => {
+    const synth = window.speechSynthesis;
+    const utter = new SpeechSynthesisUtterance(text);
+    synth.speak(utter);
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition not supported in this browser.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsRecording(true);
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      setTranscript(text);
+    };
+    recognition.onerror = () => setIsRecording(false);
+    recognition.onend = () => setIsRecording(false);
+
+    recognition.start();
+  };
+
+  const handleNextInterviewQuestion = () => {
+    const newAnswers = [...interviewAnswers, { question: interviewQuestions[currentQuestionIndex].question, answer: transcript }];
+    setInterviewAnswers(newAnswers);
+    setTranscript("");
+
+    if (currentQuestionIndex < interviewQuestions.length - 1) {
+      const nextIndex = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextIndex);
+      speakQuestion(interviewQuestions[nextIndex].question);
+    } else {
+      evaluateFullInterview(newAnswers);
+    }
+  };
+
+  const evaluateFullInterview = async (answers) => {
+    setEvaluating(true);
+    try {
+      const evaluations = await Promise.all(
+        answers.map(async (item) => {
+          const res = await api.post("/interview/evaluate", {
+            question: item.question,
+            userAnswer: item.answer,
+            jobRole: mcqForm.jobRole,
+            difficulty: mcqForm.difficulty
+          });
+          return res.data;
+        })
+      );
+      setInterviewEvaluation(evaluations);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to evaluate interview");
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
+  const handleAnswerSelect = (qIndex, answer) => {
+    if (showResults) return;
+    setUserAnswers({ ...userAnswers, [qIndex]: answer });
+  };
+
+  const calculateScore = () => {
+    let score = 0;
+    mcqData.forEach((q, i) => {
+      if (userAnswers[i] === q.correctAnswer) score++;
+    });
+    return score;
   };
 
   const getStatusColor = (status) => {
@@ -114,19 +243,19 @@ export default function UserDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
       <Navigation />
-      
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 -mt-6 animate-fadeIn">
+
+      <div className="max-w-6xl mx-auto px-6 sm:px-12 lg:px-16 py-8 -mt-6 animate-fadeIn">
         {/* Dashboard Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-          
+
           <div className="relative z-10">
             <h1 className="text-3xl font-extrabold tracking-tight mb-1">
               Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">{user?.name || 'User'}</span>!
             </h1>
             <p className="text-gray-500 dark:text-gray-400 text-lg">Here's what's happening with your job search today.</p>
           </div>
-          
+
           <button
             onClick={() => navigate("/jobs")}
             className="group relative z-10 inline-flex items-center justify-center px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium rounded-xl hover:shadow-lg transition-all active:scale-95"
@@ -138,15 +267,14 @@ export default function UserDashboard() {
 
         {/* Navigation Tabs */}
         <div className="flex overflow-x-auto hide-scrollbar space-x-2 p-1 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 mb-8 max-w-fit">
-          {["overview", "applications", "profile", "saved"].map((tab) => (
+          {["overview", "applications", "profile", "saved", "practice"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`capitalize px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 whitespace-nowrap active:scale-95 ${
-                activeTab === tab 
-                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md shadow-blue-500/20" 
+              className={`capitalize px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 whitespace-nowrap active:scale-95 ${activeTab === tab
+                  ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md shadow-blue-500/20"
                   : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 hover:shadow-sm"
-              }`}
+                }`}
             >
               {tab}
             </button>
@@ -155,7 +283,7 @@ export default function UserDashboard() {
 
         {/* Content Area */}
         <div className="animate-fadeInUp">
-          
+
           {activeTab === "overview" && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -187,7 +315,7 @@ export default function UserDashboard() {
                 <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                 Application History
               </h2>
-              
+
               {applications.length === 0 ? (
                 <div className="text-center py-16 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl">
                   <p className="text-gray-500 dark:text-gray-400 text-lg mb-4">Your application history is empty.</p>
@@ -213,13 +341,12 @@ export default function UserDashboard() {
                                 {[...Array(parseInt(app.rounds || 1))].map((_, i) => (
                                   <div
                                     key={i}
-                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black transition-all shadow-sm ${
-                                      (app.current_round || 0) > i 
-                                        ? "bg-emerald-500 text-white" 
-                                        : (app.current_round || 0) === i 
-                                          ? "bg-amber-400 text-white ring-2 ring-amber-400/30 animate-pulse" 
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black transition-all shadow-sm ${(app.current_round || 0) > i
+                                        ? "bg-emerald-500 text-white"
+                                        : (app.current_round || 0) === i
+                                          ? "bg-amber-400 text-white ring-2 ring-amber-400/30 animate-pulse"
                                           : "bg-gray-100 dark:bg-gray-800 text-gray-400 border border-gray-200 dark:border-gray-700"
-                                    }`}
+                                      }`}
                                   >
                                     {i + 1}
                                   </div>
@@ -230,7 +357,7 @@ export default function UserDashboard() {
                               </div>
                             </div>
                           </div>
-                          
+
                           {app.ats_score && (
                             <div className="mt-4 max-w-sm">
                               <div className="flex justify-between text-sm mb-1.5">
@@ -240,7 +367,7 @@ export default function UserDashboard() {
                               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden border border-gray-300 dark:border-gray-600">
                                 <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-2.5 rounded-full transition-all duration-1000" style={{ width: `${app.ats_score}%` }} />
                               </div>
-                              
+
                               {app.ats_explanation && (
                                 <div className="mt-4 p-3.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl relative overflow-hidden group">
                                   <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
@@ -268,9 +395,9 @@ export default function UserDashboard() {
                           )}
                         </div>
                         <div className="flex md:flex-col items-center justify-between border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-700 pt-4 md:pt-0 md:pl-6">
-                           <span className={`px-4 py-1.5 border rounded-full text-sm font-bold uppercase tracking-wide ${getStatusColor(app.status)}`}>
-                             {app.status}
-                           </span>
+                          <span className={`px-4 py-1.5 border rounded-full text-sm font-bold uppercase tracking-wide ${getStatusColor(app.status)}`}>
+                            {app.status}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -296,11 +423,11 @@ export default function UserDashboard() {
               </div>
 
               {editingProfile ? (
-                 <form onSubmit={handleProfileUpdate} className="space-y-6">
+                <form onSubmit={handleProfileUpdate} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Name</label>
-                      <input type="text" value={profileForm.name} onChange={(e) => setProfileForm({...profileForm, name: e.target.value})} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none" required />
+                      <input type="text" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none" required />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Email</label>
@@ -308,23 +435,23 @@ export default function UserDashboard() {
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Phone</label>
-                      <input type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({...profileForm, phone: e.target.value})} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none" />
+                      <input type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none" />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Location</label>
-                      <input type="text" value={profileForm.location} onChange={(e) => setProfileForm({...profileForm, location: e.target.value})} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none" />
+                      <input type="text" value={profileForm.location} onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none" />
                     </div>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Bio</label>
-                    <textarea value={profileForm.bio} onChange={(e) => setProfileForm({...profileForm, bio: e.target.value})} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none h-32 resize-none" placeholder="Tell companies about yourself..." />
+                    <textarea value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all outline-none h-32 resize-none" placeholder="Tell companies about yourself..." />
                   </div>
                   <div>
                     <div className="flex justify-between items-center mb-4">
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Social Media & Portfolio Links</label>
-                      <button 
-                        type="button" 
-                        onClick={() => setProfileForm({...profileForm, social_links: [...(profileForm.social_links || []), { platform: "", url: "" }]})}
+                      <button
+                        type="button"
+                        onClick={() => setProfileForm({ ...profileForm, social_links: [...(profileForm.social_links || []), { platform: "", url: "" }] })}
                         className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
@@ -334,31 +461,31 @@ export default function UserDashboard() {
                     <div className="space-y-3">
                       {(profileForm.social_links || []).map((link, index) => (
                         <div key={index} className="flex gap-2 items-center animate-fadeIn">
-                          <input 
-                            placeholder="Platform" 
-                            value={link.platform} 
+                          <input
+                            placeholder="Platform"
+                            value={link.platform}
                             onChange={(e) => {
                               const newLinks = [...profileForm.social_links];
                               newLinks[index].platform = e.target.value;
-                              setProfileForm({...profileForm, social_links: newLinks});
+                              setProfileForm({ ...profileForm, social_links: newLinks });
                             }}
-                            className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none" 
+                            className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none"
                           />
-                          <input 
-                            placeholder="URL" 
-                            value={link.url} 
+                          <input
+                            placeholder="URL"
+                            value={link.url}
                             onChange={(e) => {
                               const newLinks = [...profileForm.social_links];
                               newLinks[index].url = e.target.value;
-                              setProfileForm({...profileForm, social_links: newLinks});
+                              setProfileForm({ ...profileForm, social_links: newLinks });
                             }}
-                            className="flex-[2] px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none" 
+                            className="flex-[2] px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none"
                           />
-                          <button 
-                            type="button" 
+                          <button
+                            type="button"
                             onClick={() => {
                               const newLinks = profileForm.social_links.filter((_, i) => i !== index);
-                              setProfileForm({...profileForm, social_links: newLinks});
+                              setProfileForm({ ...profileForm, social_links: newLinks });
                             }}
                             className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors"
                           >
@@ -391,14 +518,14 @@ export default function UserDashboard() {
                   </div>
                   <div className="space-y-6">
                     <div className="col-span-1 md:col-span-2">
-                       <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Professional Bio</p>
-                       <p className="text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800">{user?.bio || "No bio added yet."}</p>
+                      <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Professional Bio</p>
+                      <p className="text-gray-700 dark:text-gray-300 leading-relaxed bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-800">{user?.bio || "No bio added yet."}</p>
                     </div>
                     <div className="col-span-1 md:col-span-2">
                       <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Top Skills</p>
                       <div className="flex flex-wrap gap-2">
                         {user?.skills ? user.skills.split(',').map((s, i) => (
-                           <span key={i} className="px-4 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-sm font-semibold border border-purple-200 dark:border-purple-800/50">{s.trim()}</span>
+                          <span key={i} className="px-4 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-sm font-semibold border border-purple-200 dark:border-purple-800/50">{s.trim()}</span>
                         )) : <p className="text-gray-500 italic">No skills listed</p>}
                       </div>
                     </div>
@@ -406,10 +533,10 @@ export default function UserDashboard() {
                       <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Social Links</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {(user?.social_links || []).length > 0 ? user.social_links.map((link, i) => (
-                          <a 
-                            key={i} 
-                            href={link.url.startsWith('http') ? link.url : `https://${link.url}`} 
-                            target="_blank" 
+                          <a
+                            key={i}
+                            href={link.url.startsWith('http') ? link.url : `https://${link.url}`}
+                            target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-3 p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl hover:shadow-md transition-all group"
                           >
@@ -469,28 +596,28 @@ export default function UserDashboard() {
                           </div>
                           <p className="text-blue-600 dark:text-blue-400 font-medium mb-3">{job.company_name}</p>
                           <p className="text-gray-600 dark:text-gray-400 line-clamp-2 mb-4 text-sm">{job.description}</p>
-                          
+
                           <div className="flex flex-wrap gap-2 mb-2">
-                             <span className="inline-flex items-center px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
-                               <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                               {job.required_skills}
-                             </span>
-                             <span className="inline-flex items-center px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-medium">
-                               <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                               {job.rounds} Rounds
-                             </span>
+                            <span className="inline-flex items-center px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
+                              <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                              {job.required_skills}
+                            </span>
+                            <span className="inline-flex items-center px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-lg text-xs font-medium">
+                              <svg className="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              {job.rounds} Rounds
+                            </span>
                           </div>
                         </div>
-                        
+
                         <div className="flex md:flex-col justify-center gap-3 md:min-w-[140px] border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-700 pt-4 md:pt-0 md:pl-6">
                           {job.status === 'open' ? (
                             <button onClick={() => navigate(`/apply/${job.id}`)} className="flex-1 w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-colors text-center text-sm shadow-sm hover:shadow-md">
                               Apply Now
                             </button>
                           ) : (
-                             <button disabled className="flex-1 w-full px-4 py-2.5 bg-gray-200 dark:bg-gray-800 text-gray-500 font-medium rounded-xl text-center text-sm cursor-not-allowed">
-                               Closed
-                             </button>
+                            <button disabled className="flex-1 w-full px-4 py-2.5 bg-gray-200 dark:bg-gray-800 text-gray-500 font-medium rounded-xl text-center text-sm cursor-not-allowed">
+                              Closed
+                            </button>
                           )}
                           <button onClick={() => unsaveJob(job.id)} className="flex-1 w-full px-4 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 font-medium rounded-xl transition-colors text-center text-sm border border-transparent hover:border-rose-200 dark:hover:border-rose-800">
                             Unsave Job
@@ -501,6 +628,279 @@ export default function UserDashboard() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === "practice" && (
+            <div className="space-y-8">
+              <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 sm:p-8 shadow-sm border border-gray-100 dark:border-gray-800">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+                  <h2 className="text-2xl font-bold flex items-center gap-3">
+                    <svg className="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                    AI Practice Center
+                  </h2>
+                  
+                  <div className="flex p-1 bg-gray-100 dark:bg-gray-800 rounded-2xl w-full md:w-auto">
+                    <button 
+                      onClick={() => setPracticeMode("mcq")}
+                      className={`flex-1 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${practiceMode === 'mcq' ? 'bg-white dark:bg-gray-700 text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      MCQ Quiz
+                    </button>
+                    <button 
+                      onClick={() => setPracticeMode("interview")}
+                      className={`flex-1 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${practiceMode === 'interview' ? 'bg-white dark:bg-gray-700 text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Virtual Interview
+                    </button>
+                  </div>
+                </div>
+
+                {mcqData.length === 0 && interviewQuestions.length === 0 && (
+                  <form onSubmit={practiceMode === 'mcq' ? handleGenerateMCQs : handleGenerateInterview} className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Job Role</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Software Engineer"
+                        value={mcqForm.jobRole}
+                        onChange={(e) => setMcqForm({ ...mcqForm, jobRole: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Company</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Google"
+                        value={mcqForm.company}
+                        onChange={(e) => setMcqForm({ ...mcqForm, company: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Job Description (optional)</label>
+                      <textarea
+                        placeholder="Paste JD here for more tailored questions..."
+                        value={mcqForm.jd}
+                        onChange={(e) => setMcqForm({ ...mcqForm, jd: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all h-24 resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Number of Questions</label>
+                      <select
+                        value={mcqForm.count}
+                        onChange={(e) => setMcqForm({ ...mcqForm, count: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Questions</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Difficulty Level</label>
+                      <select
+                        value={mcqForm.difficulty}
+                        onChange={(e) => setMcqForm({ ...mcqForm, difficulty: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                      >
+                        {["Beginner", "Intermediate", "Advanced", "Expert"].map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2 pt-2">
+                      <button
+                        type="submit"
+                        disabled={mcqLoading}
+                        className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-2xl shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                      >
+                        {mcqLoading ? "Initializing..." : `Start ${practiceMode === 'mcq' ? 'MCQ Quiz' : 'Virtual Interview'}`}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* MCQ Mode UI */}
+                {practiceMode === 'mcq' && mcqData.length > 0 && (
+                  <div className="space-y-8 animate-fadeInUp mt-4">
+                    <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-800">
+                      <h3 className="font-bold text-gray-700 dark:text-gray-300">MCQ Practice Session</h3>
+                      {showResults && (
+                        <div className="px-6 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full font-black">
+                          Score: {calculateScore()} / {mcqData.length}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-10">
+                      {mcqData.map((q, qIndex) => (
+                        <div key={qIndex} className="space-y-4">
+                          <p className="text-lg font-semibold flex gap-3">
+                            <span className="text-indigo-500">Q{qIndex + 1}.</span>
+                            {q.question}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {q.options.map((option, oIndex) => {
+                              const isSelected = userAnswers[qIndex] === option;
+                              const isCorrect = q.correctAnswer === option;
+                              const showSuccess = showResults && isCorrect;
+                              const showDanger = showResults && isSelected && !isCorrect;
+
+                              return (
+                                <button
+                                  key={oIndex}
+                                  onClick={() => handleAnswerSelect(qIndex, option)}
+                                  disabled={showResults}
+                                  className={`p-4 text-left rounded-2xl border transition-all ${showSuccess
+                                      ? "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500 text-emerald-700 dark:text-emerald-300"
+                                      : showDanger
+                                        ? "bg-rose-50 dark:bg-rose-900/20 border-rose-500 text-rose-700 dark:text-rose-300"
+                                        : isSelected
+                                          ? "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 text-indigo-700 dark:text-indigo-300"
+                                          : "bg-gray-50 dark:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-indigo-300 dark:hover:border-indigo-700"
+                                    }`}
+                                >
+                                  <span className="font-bold mr-2">{String.fromCharCode(65 + oIndex)}.</span>
+                                  {option}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {showResults && (
+                            <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30 text-sm animate-fadeIn">
+                              <p className="font-bold text-blue-700 dark:text-blue-300 mb-1">Explanation:</p>
+                              <p className="text-gray-700 dark:text-gray-300">{q.explanation}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {!showResults ? (
+                      <button
+                        onClick={() => setShowResults(true)}
+                        disabled={Object.keys(userAnswers).length < mcqData.length}
+                        className="w-full py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-8"
+                      >
+                        Submit Answers
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setMcqData([]); setShowResults(false); setUserAnswers({}); }}
+                        className="w-full py-4 bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white font-bold rounded-2xl shadow-sm transition-all active:scale-[0.98] mt-8"
+                      >
+                        Try New Quiz
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Virtual Interview UI */}
+                {practiceMode === 'interview' && interviewQuestions.length > 0 && !interviewEvaluation && (
+                  <div className="max-w-3xl mx-auto py-12 text-center space-y-12 animate-fadeIn">
+                    <div className="space-y-4">
+                      <div className="inline-flex items-center px-4 py-1.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-xs font-bold uppercase tracking-widest">
+                        Question {currentQuestionIndex + 1} of {interviewQuestions.length}
+                      </div>
+                      <h3 className="text-3xl font-extrabold text-gray-900 dark:text-white leading-tight">
+                        {interviewQuestions[currentQuestionIndex].question}
+                      </h3>
+                    </div>
+
+                    <div className="relative inline-block">
+                      <div className={`absolute inset-0 bg-indigo-500 rounded-full blur-3xl opacity-20 animate-pulse ${isRecording ? 'scale-150' : 'scale-100'}`}></div>
+                      <button 
+                        onClick={startListening}
+                        disabled={isRecording}
+                        className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all shadow-xl hover:scale-105 active:scale-95 ${isRecording ? 'bg-rose-500 text-white' : 'bg-indigo-600 text-white'}`}
+                      >
+                        {isRecording ? (
+                          <div className="flex gap-1">
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce"></span>
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                          </div>
+                        ) : (
+                          <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-dashed border-gray-200 dark:border-gray-700 min-h-[100px] flex items-center justify-center italic text-gray-500 dark:text-gray-400">
+                        {transcript || "Click the microphone and start speaking your answer..."}
+                      </div>
+
+                      <button 
+                        onClick={handleNextInterviewQuestion}
+                        disabled={!transcript || evaluating}
+                        className="w-full py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50"
+                      >
+                        {evaluating ? "Evaluating..." : currentQuestionIndex === interviewQuestions.length - 1 ? "Finish Interview" : "Submit & Next Question"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Interview Results UI */}
+                {interviewEvaluation && (
+                  <div className="space-y-12 animate-fadeInUp">
+                    <div className="text-center space-y-4">
+                      <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full mx-auto flex items-center justify-center">
+                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-6m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      </div>
+                      <h3 className="text-3xl font-black text-gray-900 dark:text-white">Interview Summary</h3>
+                      <p className="text-gray-500 dark:text-gray-400">Great job! Here's how you performed in your virtual session.</p>
+                    </div>
+
+                    <div className="grid gap-8">
+                      {interviewEvaluation.map((res, i) => (
+                        <div key={i} className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-8 border border-gray-100 dark:border-gray-800 space-y-6">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
+                              <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-1">Question {i + 1}</p>
+                              <h4 className="text-xl font-bold text-gray-900 dark:text-white">{interviewAnswers[i]?.question}</h4>
+                            </div>
+                            <div className={`px-4 py-2 rounded-2xl font-black text-xl shadow-sm ${res.correct ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                              {res.score}/10
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Your Answer</p>
+                              <p className="text-gray-700 dark:text-gray-300 italic">"{interviewAnswers[i]?.answer}"</p>
+                            </div>
+                            
+                            <div className="p-6 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+                              <p className="text-xs font-bold text-emerald-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                                Ideal Answer
+                              </p>
+                              <p className="text-gray-700 dark:text-gray-300 font-medium">{res.idealAnswer}</p>
+                            </div>
+
+                            <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                              <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                Feedback
+                              </p>
+                              <p className="text-gray-700 dark:text-gray-300">{res.feedback}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button 
+                      onClick={() => { setInterviewQuestions([]); setInterviewEvaluation(null); setInterviewAnswers([]); }}
+                      className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl hover:shadow-indigo-500/25 transition-all active:scale-[0.98]"
+                    >
+                      Restart Practice
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

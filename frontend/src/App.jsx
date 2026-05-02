@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
 import Jobs from "./pages/Jobs";
 import Apply from "./pages/Apply";
 import UserDashboard from "./pages/UserDashboard";
@@ -16,6 +17,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/features" element={<Features />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/analyzer" element={<AIAnalyzer />} />
